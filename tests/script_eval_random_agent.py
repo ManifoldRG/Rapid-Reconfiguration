@@ -1,11 +1,12 @@
 import os
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
-from sb3_contrib import MaskablePPO
+#from sb3_contrib import MaskablePPO
 from ogm.ogm_gym_env import make_ogm_env
-from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize
-import subprocess
+#from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize
+#import subprocess
 import logging
 import statistics
+import numpy as np
 
 #export QT_QPA_PLATFORM=offscreen
 
@@ -154,7 +155,7 @@ def run_tests(num_runs):
     def setup_logging(log_dir):
         """Setup logging to file and console."""
         os.makedirs(log_dir, exist_ok=True)
-        log_file = os.path.join(log_dir, "testing_sb3.log")
+        log_file = os.path.join(log_dir, "testing_random.log")
         logger = logging.getLogger()
 
         # for handler in logger.handlers[:]:  # make a copy of the list
@@ -168,6 +169,18 @@ def run_tests(num_runs):
             force=True
         )
         logging.info("Logging initialized. Log directory: %s", log_dir)
+
+    def mask_actions(action_mask):
+        actions = []
+
+        for i in range(49):
+            if action_mask[i]:
+                actions.append(i)
+
+        return actions
+
+    def randomly_select_action(actions):
+        return actions[np.random.randint(len(actions))]
 
     CURRICULUM_STAGES = [
         # ========== Small-scale stages (n=4 to n=7) ==========
@@ -323,7 +336,7 @@ def run_tests(num_runs):
         # Parallel environments using multiprocessing
         #env = SubprocVecEnv([make_env for _ in range(num_envs)])
         #model = MaskablePPO.load("/home/benjamin_faught/Pivoting-Cube-Reconfiguration/runs/curriculum_n12/to_n12_20260610_230927/stage_n4/n4_20260610_230932/final_model.zip")#,
-        model = MaskablePPO.load(model_path)#,
+        #model = MaskablePPO.load(model_path)#,
                 #     env=env,
                 #     learning_rate=learning_rate,
                 #     n_steps=args.n_steps,
@@ -417,6 +430,7 @@ def run_tests(num_runs):
         run_steps = [0] * num_runs
         run_global_timesteps = [0] * num_runs
         run_phi = [0] * num_runs
+        run_phi_diff = [0] * num_runs
         logging.info("n: %s", n)
         logging.info("Model path: %s", model_path)
 
@@ -428,10 +442,13 @@ def run_tests(num_runs):
             done = False
             steps = 0
             moves = 0
+            init_phi = 0
 
             while not done:
                 action_mask = ogm_env.action_masks()
-                action, _ = model.predict(obs, action_masks=action_mask, deterministic=True)
+                actions = mask_actions(action_mask)
+                #action, _ = model.predict(obs, action_masks=action_mask, deterministic=True)
+                action = randomly_select_action(actions)
                 obs, reward, terminated, truncated, info = ogm_env.step(action)
                 curr_sqdist = ogm_env.env.ogm.compute_pairwise_sqdist(
                             ogm_env.env.ogm.module_positions
@@ -449,17 +466,22 @@ def run_tests(num_runs):
                 if action != 48:
                     moves = moves + 1
 
+                if init_phi == 0:
+                    init_phi = phi
+
             run_moves[done_count] = moves
             run_steps[done_count] = info["step"]
             run_global_timesteps[done_count] = info["episode_step"]
             run_phi[done_count] = phi
+            run_phi_diff[done_count] = phi - init_phi
             done_count = done_count + 1
 
             if info["is_success"]:
                 success_count = success_count + 1
 
-            run_moves[done_count - 1]
+            #run_moves[done_count - 1]
             logging.info("Success rate: %s%%", (success_count / done_count) * 100)
+            logging.info("Shape similarity score phi increase: %s", phi - init_phi)
         # calc median values
 
         logging.info("Final success rate: %s%%", (success_count / done_count) * 100)
@@ -467,6 +489,7 @@ def run_tests(num_runs):
         median_steps = statistics.median(run_steps)
         median_global_timesteps = statistics.median(run_global_timesteps)
         median_phi = statistics.median(run_phi)
+        median_phi_diff = statistics.median(run_phi_diff)
         logging.info("Moves per run: %s", run_moves)
         logging.info("Steps per run: %s", run_steps)
         logging.info("Global timesteps per run: %s", run_global_timesteps)
@@ -474,9 +497,8 @@ def run_tests(num_runs):
         logging.info("Median steps: %s", median_steps)
         logging.info("Median global timesteps: %s", median_global_timesteps)
         logging.info("Median shape similarity score phi: %s", median_phi)
+        logging.info("Median increase in shape similarity score phi: %s", median_phi_diff)
         
-
-
 if __name__ == "__main__":
     num_runs = 100
     run_tests(num_runs)

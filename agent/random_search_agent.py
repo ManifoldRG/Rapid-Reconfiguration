@@ -7,6 +7,10 @@ class RandomSearchAgent(Agent):
         self.max_steps = max_steps
         self.steps_taken = 0
         self.success = False
+        self.info = {
+            "steps": 0,
+            "success": self.success
+        }
 
     def search(self, ogm, visualizer=None):
         ogm.init_actions()
